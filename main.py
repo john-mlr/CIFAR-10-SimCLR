@@ -6,8 +6,9 @@ import torch.multiprocessing as mp
 
 from simclr.modules import SimCLRTransforms
 from simclr.modules import SimCLRCIFAR10
-from simclr.modules import SimCLR, LinearClassifier
+from simclr import SimCLR, LinearClassifier
 from simclr.modules import NT_Xent
+from simclr.modules import make_features
 
 import argparse
 import numpy as np
@@ -131,7 +132,7 @@ def train(gpu, args):
     
     # Loss function and optimizer setup
     criterion = NT_Xent(batch_size=args.batch_size, temperature=args.temperature).cuda(gpu)
-    pretraining_optimizer = LARS #TODO: build lars
+    pretraining_optimizer = torch.optim.Adam(params=simclr_model.parameters(), lr=1e-3)
     
     # Begin Training Loop
     pretraining_losses = []
