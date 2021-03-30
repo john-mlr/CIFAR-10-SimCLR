@@ -231,6 +231,7 @@ def train(gpu, args):
     
     epoch_losses = []
     epoch_accs = []
+    # pretty similar to training loops for simclr
     for epoch in range(args.eval_epochs):
         if dist.get_rank() == 0:
             print(f"Epoch: {epoch + 1}")
