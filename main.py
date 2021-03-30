@@ -34,10 +34,6 @@ def main():
                         help='number of pretraining epochs')
     parser.add_argument('-ee', '-eval_epochs', default=500, type=int,
                         help='number of linear eval epochs')
-    parser.add_argument('-ce', '--concurrent_eval', action='store_true',
-                        help=('Whether to evaluate the training set throughout pretraining.'
-                              'Will slow down pretraining considerably, but provides insight'
-                              'into the classification ability of the encoded features'))
     
     # Training hyperparameters
     parser.add_argument('-b', '--batch_size', default=256, type=int,
@@ -132,7 +128,7 @@ def train(gpu, args):
     
     # Loss function and optimizer setup
     criterion = NT_Xent(batch_size=args.batch_size, temperature=args.temperature).cuda(gpu)
-    pretraining_optimizer = torch.optim.Adam(params=simclr_model.parameters(), lr=1e-3)
+    pretraining_optimizer = torch.optim.Adam(params=simclr_model.parameters(), lr=args.learning_rate)
     
     # Begin Training Loop
     pretraining_losses = []
