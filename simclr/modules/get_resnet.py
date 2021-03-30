@@ -10,11 +10,11 @@ def get_resnet(args, cifar=True):
                     
             cifar (bool): If true, will modify Resnet in accordance with the SimCLR paper. 
     """
-    if args.encoder == "Resnet-50":
+    if args.encoder == "resnet50":
         model = torchvision.models.resnet50(pretrained=False)
 
         
-    elif args.encoder == "Resnet-18":
+    elif args.encoder == "resnet18":
         model = torchvision.models.resnet18(pretrained=False)
         
     if cifar:
