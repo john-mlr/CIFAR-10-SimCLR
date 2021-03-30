@@ -6,9 +6,9 @@ import torch.multiprocessing as mp
 
 from simclr.modules import SimCLRTransforms
 from simclr.modules import SimCLRCIFAR10
-from simclr import SimCLR, LinearClassifier
 from simclr.modules import NT_Xent
 from simclr.modules import make_features
+from simclr import SimCLR, LinearClassifier
 
 import argparse
 import numpy as np
@@ -239,7 +239,6 @@ def train(gpu, args):
         
         epoch_loss = 0
         epoch_acc = 0
-        # iterate through all batches and train model
         for batch, (x, label) in enumerate(train_feat_loader):
             x = x.cuda(gpu)
             label = label.long().cuda(gpu)
