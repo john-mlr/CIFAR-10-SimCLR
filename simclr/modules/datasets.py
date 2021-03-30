@@ -1,8 +1,8 @@
 from torchvision import datasets
 
 class SimCLRCIFAR10(datasets.CIFAR10):
-    def __init__(self, dwnld_path, train=True, transforms=None, pretraining=True):
-        super().__init__(root=dwnld_path, train=train, download=True)
+    def __init__(self, download_path, train=True, transforms=None, pretraining=True):
+        super().__init__(root=download_path, train=train, download=True)
         
         self.transforms = transforms
         self.pretraining = pretraining
