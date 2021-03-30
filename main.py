@@ -274,7 +274,7 @@ def train(gpu, args):
     # once linear classifier is trained, evaluate on test features
     test_loss = 0
     test_acc = 0
-    with torch.no_grad()
+    with torch.no_grad():
         for batch, (x, label) in enumerate(test_feat_loader):
                 x = x.cuda(gpu)
                 label = label.long().cuda(gpu)
