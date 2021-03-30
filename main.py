@@ -276,31 +276,31 @@ def train(gpu, args):
     test_acc = 0
     with torch.no_grad():
         for batch, (x, label) in enumerate(test_feat_loader):
-                x = x.cuda(gpu)
-                label = label.long().cuda(gpu)
-                
-                output = linear_model(x_i)
-                
-                loss = linear_criterion(output, label)
-                
-                test_loss += loss
-                
-                predicted = output.argmax(1)
-                acc = (predicted == label).sum().item() / label.size(0)
-                test_acc += acc
+            x = x.cuda(gpu)
+            label = label.long().cuda(gpu)
+            
+            output = linear_model(x_i)
+            
+            loss = linear_criterion(output, label)
+            
+            test_loss += loss
+            
+            predicted = output.argmax(1)
+            acc = (predicted == label).sum().item() / label.size(0)
+            test_acc += acc
                     
-            test_loss = test_loss.clone().detach()
-            dist.reduce(test_loss, dst=0)
-            
-            test_acc = test_acc.clone().detach()
-            dist.reduce(test_acc, dst=0)
-            
-            if dist.get_rank() == 0:
-                mean_test_loss = test_loss.item() / (dist.get_world_size * len(test_feat_loader_loader))
-                mean_test_acc = test_acc.item() / (dist.get_world_size * len(test_feat_loader))
-                print("Test Set\t",
-                    "Average Loss:", mean_test_loss,
-                    "\tAverage Acc:", mean_test_acc)
+        test_loss = test_loss.clone().detach()
+        dist.reduce(test_loss, dst=0)
+        
+        test_acc = test_acc.clone().detach()
+        dist.reduce(test_acc, dst=0)
+        
+        if dist.get_rank() == 0:
+            mean_test_loss = test_loss.item() / (dist.get_world_size * len(test_feat_loader_loader))
+            mean_test_acc = test_acc.item() / (dist.get_world_size * len(test_feat_loader))
+            print("Test Set\t",
+                "Average Loss:", mean_test_loss,
+                "\tAverage Acc:", mean_test_acc)
     
     # save data at the end
     if dist.get_rank() == 0:            
