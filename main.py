@@ -8,11 +8,14 @@ from simclr.modules import SimCLRTransforms
 from simclr.modules import SimCLRCIFAR10
 from simclr.modules import NT_Xent
 from simclr.modules import make_features
+from simclr.modules import get_resnet
 from simclr import SimCLR, LinearClassifier
 
 import argparse
 import numpy as np
 import os
+import socket
+import time
 
 def main():
     parser = argparse.ArgumentParser()
@@ -32,7 +35,7 @@ def main():
     # Training lengths and params
     parser.add_argument('-e', '--epochs', default=50, type=int,
                         help='number of pretraining epochs')
-    parser.add_argument('-ee', '-eval_epochs', default=500, type=int,
+    parser.add_argument('-ee', '--eval_epochs', default=500, type=int,
                         help='number of linear eval epochs')
     
     # Training hyperparameters
@@ -53,11 +56,11 @@ def main():
     os.environ['MASTER_PORT'] = '55000'
     os.environ['MASTER_ADDR'] = socket.gethostbyname(socket.gethostname())
     
-    mp.spawn(train, nprocs=args.gpus, args=(agrs, ))
+    mp.spawn(train, nprocs=args.gpus, args=(args, ))
     
 def train(gpu, args):
     # some distribution setup
-    rank = args.nr * agrs.gpus + gpu
+    rank = args.nr * args.gpus + gpu
     
     dist.init_process_group("nccl", rank=rank, world_size=args.world_size)
     print(f"Process on cuda:{rank} initialized.", flush=True)
@@ -72,12 +75,12 @@ def train(gpu, args):
     GENERAL_PATH = './'
     
     # dataset setup
-    transforms = SimCLRTransforms(img_size=(32,32))
+    transforms = SimCLRTransforms(img_size=32)
     
     # create two training datasets - one for pretraining and one for 
     # linear evaluation.
     pretrain_dataset = SimCLRCIFAR10(download_path=GENERAL_PATH, train=True, 
-                                  transforms=pretraining_transforms,
+                                  transforms=transforms,
                                   pretraining=True)
     
     # Linear evaluation (labels, no dual transform)
@@ -86,7 +89,7 @@ def train(gpu, args):
                                   pretraining=False)
     
     test_dataset = SimCLRCIFAR10(download_path=GENERAL_PATH, train=False,
-                                 transforms=pretraining_transforms.eval_transform,
+                                 transforms=transforms.eval_transform,
                                  pretraining=False)
     
     if dist.get_rank() == 0:
@@ -99,7 +102,7 @@ def train(gpu, args):
                                                                        shuffle=True,
                                                                        drop_last=True)
     pretrain_loader = torch.utils.data.DataLoader(pretrain_dataset, sampler=pretrain_sampler,
-                                                  batch_size=args.batch_size, num_workers=8)
+                                                  batch_size=args.batch_size, num_workers=8, drop_last=True)
     
     
     # train and test samplers are to pass through the model for feature creation.
@@ -122,7 +125,8 @@ def train(gpu, args):
     # model setup
     encoder = get_resnet(args)
     num_ftrs = encoder.fc.in_features
-    simclr_model = SimCLR(num_ftrs=num_ftrs, encoder=encoder)
+    encoder.fc = nn.Identity()
+    simclr_model = SimCLR(num_ftrs=num_ftrs, encoder=encoder).cuda(gpu)
     simclr_model = nn.SyncBatchNorm.convert_sync_batchnorm(simclr_model)
     simclr_model = nn.parallel.DistributedDataParallel(simclr_model, device_ids=[gpu])
     
@@ -168,12 +172,16 @@ def train(gpu, args):
         
         # print and store the mean epoch loss only on rank 0
         if dist.get_rank() == 0:
-            mean_loss = epoch_loss.item() / (dist.get_world_size * len(pretrain_loader))
+            mean_loss = epoch_loss.item() / (dist.get_world_size() * len(pretrain_loader))
             
             print("Epoch:", epoch,
-                  "Average Loss:", mean_loss)
+                  "Average Loss:", mean_loss,
+                  "Time taken:", time.time() - t_0)
             
             pretraining_losses.append(mean_loss)
+            
+    if dist.get_rank() == 0:
+        print("Pretraining complete, generating features", flush=True)
             
     
     # create features from trained SimCLR model
@@ -189,7 +197,7 @@ def train(gpu, args):
     # gather all features and labels on every device
     dist.all_gather(train_feat_list, train_feats)
     dist.all_gather(train_lab_list, train_labs)
-    dist.all_gather(test_feat_list, dev_feats)
+    dist.all_gather(test_feat_list, test_feats)
     dist.all_gather(test_lab_list, test_labs)
     
     # cat all of the lists (turn them from a list of tensors to a single tensor)
@@ -214,33 +222,30 @@ def train(gpu, args):
                                                     batch_size=args.batch_size)
     
     
-    dist.barrier(group=group)
+    dist.barrier()
     if dist.get_rank() == 0:
-        print("Feature dataloders created, training linear eval...") 
+        print("Feature dataloders created, training linear eval...", flush=True) 
         
-    linear_model = LinearClassifier(in_ftrs=2048, out_ftrs=2)
+    linear_model = LinearClassifier(in_ftrs=2048, out_ftrs=10)
     linear_model = linear_model.cuda(gpu)
     linear_model = nn.parallel.DistributedDataParallel(linear_model, device_ids=[gpu])
     
     linear_criterion = nn.CrossEntropyLoss().cuda(gpu)
     linear_optimizer = torch.optim.Adam(linear_model.parameters(), lr=1e-3)
     
-    epoch_losses = []
-    epoch_accs = []
+    eval_losses = []
+    eval_accs = []
     # pretty similar to training loops for simclr
-    for epoch in range(args.eval_epochs):
-        if dist.get_rank() == 0:
-            print(f"Epoch: {epoch + 1}")
-            
+    for epoch in range(args.eval_epochs):            
         train_feat_sampler.set_epoch
         
         epoch_loss = 0
         epoch_acc = 0
         for batch, (x, label) in enumerate(train_feat_loader):
             x = x.cuda(gpu)
-            label = label.long().cuda(gpu)
+            label = label.cuda(gpu)
             
-            output = linear_model(x_i)
+            output = linear_model(x)
             
             loss = linear_criterion(output, label)
             
@@ -250,7 +255,7 @@ def train(gpu, args):
             linear_optimizer.step()
             
             predicted = output.argmax(1)
-            acc = (predicted == label).sum().item() / label.size(0)
+            acc = (predicted == label).sum() / label.size(0)
             epoch_acc += acc
                 
         epoch_loss = epoch_loss.clone().detach()
@@ -260,8 +265,8 @@ def train(gpu, args):
         dist.reduce(epoch_acc, dst=0)
         
         if dist.get_rank() == 0:
-            mean_loss = epoch_loss.item() / (dist.get_world_size * len(train_feat_loader_loader))
-            mean_acc = epoch_acc.item() / (dist.get_world_size * len(train_feat_loader))
+            mean_loss = epoch_loss.item() / (dist.get_world_size() * len(train_feat_loader))
+            mean_acc = epoch_acc.item() / (dist.get_world_size() * len(train_feat_loader))
             
             if epoch / 50 == 0:
                 print("Epoch:", epoch,
@@ -277,16 +282,16 @@ def train(gpu, args):
     with torch.no_grad():
         for batch, (x, label) in enumerate(test_feat_loader):
             x = x.cuda(gpu)
-            label = label.long().cuda(gpu)
+            label = label.cuda(gpu)
             
-            output = linear_model(x_i)
+            output = linear_model(x)
             
             loss = linear_criterion(output, label)
             
             test_loss += loss
             
             predicted = output.argmax(1)
-            acc = (predicted == label).sum().item() / label.size(0)
+            acc = (predicted == label).sum() / label.size(0)
             test_acc += acc
                     
         test_loss = test_loss.clone().detach()
@@ -296,8 +301,8 @@ def train(gpu, args):
         dist.reduce(test_acc, dst=0)
         
         if dist.get_rank() == 0:
-            mean_test_loss = test_loss.item() / (dist.get_world_size * len(test_feat_loader_loader))
-            mean_test_acc = test_acc.item() / (dist.get_world_size * len(test_feat_loader))
+            mean_test_loss = test_loss.item() / (dist.get_world_size() * len(test_feat_loader))
+            mean_test_acc = test_acc.item() / (dist.get_world_size() * len(test_feat_loader))
             print("Test Set\t",
                 "Average Loss:", mean_test_loss,
                 "\tAverage Acc:", mean_test_acc)
@@ -306,11 +311,15 @@ def train(gpu, args):
     if dist.get_rank() == 0:            
         pretraining_losses = np.array(pretraining_losses)
 
-        eval_losses = np.array(epoch_losses)
-        eval_accs = np.array(epoch_accs)
+        eval_losses = np.array(eval_losses)
+        eval_accs = np.array(eval_accs)
 
-        np_pt_path = os.path.join(data_path, "pretraining_data.npz")
-        np.savez(np_pt_path, losses=pretrain_losses)
+        np_pt_path = os.path.join(GENERAL_PATH, "pretraining_data.npz")
+        np.savez(np_pt_path, losses=pretraining_losses)
         
-        np_eval_path = os.path.join(data_path, "eval_data.npz")
-        np.savez(np.eval_path, losses=eval_losses, accs=eval_accs, test_loss=mean_test_loss, test_acc=mean_test_acc)
+        np_eval_path = os.path.join(GENERAL_PATH, "eval_data.npz")
+        np.savez(np_eval_path, losses=eval_losses, accs=eval_accs, test_loss=mean_test_loss, test_acc=mean_test_acc)
+
+
+if __name__ == "__main__":
+    main()

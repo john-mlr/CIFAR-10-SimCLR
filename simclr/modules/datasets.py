@@ -12,7 +12,7 @@ class SimCLRCIFAR10(datasets.CIFAR10):
         
     def __getitem__(self, idx):
         # retrieve images and labels using inherited get item.
-        img, label = super.__getitem__(idx)
+        img, label = super().__getitem__(idx)
         
         # pretraining does not require labels, so does not return them.
         if self.pretraining:

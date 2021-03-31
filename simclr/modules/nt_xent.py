@@ -40,12 +40,10 @@ class NT_Xent(nn.Module):
         # the denominator of the NT-Xent loss function. size [(N)]
         denominator = torch.sum(exp_sim, dim=1) - sim_self
 
-        mean_neg_pair = denominator / (len(exp_sim) - 1)
-
         # divide positive pairs by sums of total similarities item-wise
         itemized_loss = -torch.log(torch.div(pos_pairs,denominator))
 
         # mean loss for the batch
         batch_loss = torch.mean(itemized_loss)
 
-        return batch_loss, sim_i_j, torch.mean(mean_neg_pair)
+        return batch_loss
