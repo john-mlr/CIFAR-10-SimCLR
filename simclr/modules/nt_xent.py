@@ -1,9 +1,13 @@
 import torch.nn as nn
 import torch
 
-""" for some reason pylint doesn't recognize torch's tensor manip functions, but they're thee."""
-
 class NT_Xent(nn.Module):
+    """ SimCLR Loss function
+    
+        Init args:
+            batch_size (int): batch size used to train SimCLR model.
+            temperature (float): temperature adjustment for cosine similarity.
+    """
     def __init__(self, batch_size, temperature):
         super(NT_Xent, self).__init__()
 
@@ -16,6 +20,8 @@ class NT_Xent(nn.Module):
 
     # todo: vectorize and refactor to use nn.CEL
     def forward(self, z_i, z_j):
+        """ Calculates loss as outline in the SimCLR paper.
+        """
 
         # concatenate the representations of both transforms of the batch's images into
         # a single matrix, size [(N, 64)]
