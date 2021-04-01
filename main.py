@@ -185,8 +185,8 @@ def train(gpu, args):
             
     
     # create features from trained SimCLR model
-    train_feats, train_labs = make_features(train_loader, simclr_model, gpu, args)
-    test_feats, test_labs = make_features(test_loader, simclr_model, gpu, args)
+    train_feats, train_labs = make_features(train_loader, simclr_model, gpu)
+    test_feats, test_labs = make_features(test_loader, simclr_model, gpu)
     
     # premake lists on all ranks for distribution
     train_feat_list = [torch.zeros_like(train_feats) for _ in range(args.world_size)]
